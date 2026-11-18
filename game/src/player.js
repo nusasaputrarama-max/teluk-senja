@@ -1,19 +1,59 @@
-// TELUK SENJA — Raka on foot: third-person walker with run, jump, and a
+// TELUK SENJA — Prabowo on foot: third-person walker with run, jump, and a
 // mouse-drag orbit camera. Also owns entering / exiting cars.
 
 import * as THREE from 'three';
 import { PLAYER } from './config.js';
 
+// Face hook: the character's face comes from a single swappable file,
+// game/assets/face.png (the same file the menu portrait shows). The owner's
+// real photo is used as-is, centre-cropped to a square — no caricature, no
+// stylisation. Until it arrives, face.png is a neutral placeholder silhouette
+// (no real person's face). Set FACE_ON_HEAD false if a head texture ever reads
+// badly at gameplay distance; the menu portrait is the face's primary home.
+const FACE_ON_HEAD = true;
+const FACE_SRC = './assets/face.png';
+
+function makeFaceMaterial(skinMat) {
+  if (!FACE_ON_HEAD) return skinMat;
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#c98a5a'; // plain skin until the photo loads (or if it fails)
+  g.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const img = new Image();
+  img.onload = () => {
+    // Frame the face + peci as-is (no stylisation). The official portrait
+    // carries the face in the upper middle, so crop that square region
+    // instead of the whole head-and-shoulders shot (which reads as a suit
+    // on the head box). Fractions of the image; retune if the photo changes.
+    const side = img.width * 0.44;
+    const sx = img.width * 0.28;
+    const sy = img.height * 0.06;
+    g.drawImage(img, sx, sy, side, side, 0, 0, 128, 128);
+    tex.needsUpdate = true;
+  };
+  img.src = FACE_SRC;
+  return new THREE.MeshLambertMaterial({ map: tex });
+}
+
 export function makePlayerMesh() {
   const g = new THREE.Group();
   const skin = new THREE.MeshLambertMaterial({ color: 0xc98a5a });
-  const shirt = new THREE.MeshLambertMaterial({ color: 0xff7a3a }); // Raka's orange jacket
+  const shirt = new THREE.MeshLambertMaterial({ color: 0xff7a3a }); // Prabowo's orange jacket
   const pants = new THREE.MeshLambertMaterial({ color: 0x2a3a5a });
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.72, 0.34), shirt);
   torso.position.y = 1.18;
   torso.castShadow = true;
   g.add(torso);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.42, 0.4), skin);
+  const head = new THREE.Mesh(
+    new THREE.BoxGeometry(0.4, 0.42, 0.4),
+    // Box material order: +x, -x, +y, -y, +z (face), -z. The face looks +z,
+    // the direction the character faces at heading 0.
+    [skin, skin, skin, skin, makeFaceMaterial(skin), skin],
+  );
   head.position.y = 1.78;
   head.castShadow = true;
   g.add(head);

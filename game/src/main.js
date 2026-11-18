@@ -1,5 +1,5 @@
 // TELUK SENJA — main entry: boots the renderer, wires every system, runs the
-// game loop and the menu / pause / busted / dead states. Raka, a courier in a
+// game loop and the menu / pause / busted / dead states. Prabowo, a courier in a
 // dusk coastal city, takes jobs from Dara while the police watch the streets.
 
 import * as THREE from 'three';
@@ -110,7 +110,7 @@ const missions = new Missions(scene, (type, payload) => {
   } else if (type === 'missions-finished') {
     cash += 1000;
     hud.setCash(cash);
-    hud.toast('Semua misi selesai! Bonus $1000. Teluk Senja milikmu, Raka.', 6000);
+    hud.toast('Semua misi selesai! Bonus $1000. Teluk Senja milikmu, Prabowo.', 6000);
     sound.missionComplete();
     persist();
   }
@@ -634,3 +634,29 @@ if (isShot) {
 window.__gameReady = false;
 animate();
 window.__gameReady = true;
+
+// Testing hook: read-only live state for automated playtests (headless Chrome)
+// and the finalist review. Not part of gameplay; it only exposes references
+// the page already owns, and never lets a test write game state except the
+// camera yaw (equivalent to dragging the mouse).
+window.__teluk = {
+  get state() { return state; },
+  get cash() { return cash; },
+  get missionIndex() { return missions.index; },
+  get missionState() { return missions.state; },
+  get mission() {
+    const m = missions.current();
+    return m ? {
+      id: m.id, kind: m.kind, phase: missions.phase,
+      target: missions.target ? { ...missions.target } : null,
+      tailSeenTimer: missions.tailSeenTimer,
+    } : null;
+  },
+  get inCar() { return !!player.inCar; },
+  get wanted() { return police.wanted; },
+  get health() { return player.health; },
+  get ammo() { return combat.ammo; },
+  player, police, missions, combat, crowd, world,
+  cars: { playerCar, parkedCars, traffic, get tailVan() { return tailVanActive ? tailVan : null; } },
+  start: (fromSave) => startGame(fromSave),
+};

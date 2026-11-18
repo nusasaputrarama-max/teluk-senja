@@ -55,13 +55,13 @@ export const WANTED = {
   policePerLevel: [[0, 0], [1, 0], [2, 1], [2, 2], [3, 3], [4, 4]],
 };
 
-// Mission chain: Raka the courier takes jobs from Dara, the dispatcher.
+// Mission chain: Prabowo the courier takes jobs from Dara, the dispatcher.
 // Each mission: id, title, briefing, objective text, target position, reward.
 export const MISSIONS = [
   {
     id: 'antar-paket',
     title: 'Paket ke Dermaga',
-    briefing: 'Dara: "Raka, antar paket ini ke Dermaga Senja sebelum magrib. Jangan ditanya isinya."',
+    briefing: 'Dara: "Prabowo, antar paket ini ke Dermaga Senja sebelum magrib. Jangan ditanya isinya."',
     objective: 'Antar paket ke penanda kuning di Dermaga',
     target: { x: -224, z: 0 },
     reward: 150,
@@ -104,6 +104,6 @@ export const SAVE_KEY = 'teluk-senja-save-v1';
 export const SHOTS = {
   chase: { label: 'Pengejaran di jalan pesisir' },
   city: { label: 'Kota Teluk Senja saat senja' },
-  mission: { label: 'Raka di Dermaga Senja' },
+  mission: { label: 'Prabowo di Dermaga Senja' },
   drive: { label: 'Berkendara di jalan pantai' },
 };

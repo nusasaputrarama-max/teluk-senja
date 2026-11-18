@@ -285,7 +285,7 @@ export class World {
 
     // --- Named spots ------------------------------------------------------
     const marketCenter = WORLD.gridOrigin + 4 * WORLD.pitch + WORLD.block / 2;
-    this.spots.base = { x: 26, z: 26 }; // Raka's base: market square corner
+    this.spots.base = { x: 26, z: 26 }; // Prabowo's base: market square corner
     this.spots.pier = { x: WORLD.beachX - 2, z: 0 };
     this.spots.pierEnd = { x: WORLD.beachX - 50, z: 0 };
     this.spots.market = { x: marketCenter, z: marketCenter };

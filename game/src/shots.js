@@ -6,7 +6,7 @@ export function applyShot(name, ctx) {
   const { player, playerCar, traffic, police, missions, crowd, world } = ctx;
   const coastal = world.lineCenters[0]; // westernmost road, along the beach
   if (name === 'chase') {
-    // Raka staged mid-chase on the coastal road: parked in frame, police
+    // Prabowo staged mid-chase on the coastal road: parked in frame, police
     // closing in behind. (The game loop is frozen in shot mode, so the
     // composition stays exactly as staged.)
     playerCar.x = coastal;
@@ -56,7 +56,7 @@ export function applyShot(name, ctx) {
     };
   }
   if (name === 'mission') {
-    // Raka on foot at the pier base, mission beacon up, car + pedestrians near.
+    // Prabowo on foot at the pier base, mission beacon up, car + pedestrians near.
     missions.state = 'active';
     missions.setTarget(world.spots.pier.x, world.spots.pier.z);
     player.x = world.spots.pier.x + 16;

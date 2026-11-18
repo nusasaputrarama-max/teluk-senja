@@ -1,4 +1,4 @@
-// TELUK SENJA — missions: Raka's job chain from Dara the dispatcher.
+// TELUK SENJA — missions: Prabowo's job chain from Dara the dispatcher.
 // States: idle -> active -> (done) -> next. A beacon marks the target in the
 // world and on the minimap; rewards are paid in cash on completion.
 
