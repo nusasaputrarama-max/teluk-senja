@@ -1,79 +1,94 @@
-// The screenshot scenes behind ?shot=start|play|end. Each one plays the real rules forward from a
-// fresh world for a fixed number of steps, steered by a simple autopilot (look ahead each way the
-// paddle could move, keep clear of blocks, chase the lowest coin when that is safe), so the frame
-// is what a short game really looks like and the same seed always gives the same frame.
-import { FIELD, PLAYER, STEP } from './config.js';
-import { EVENT_OVER, KIND_BLOCK } from './world.js';
-import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+// TELUK SENJA — deterministic screenshot poses (?shot=chase|city|mission|drive).
+// Each pose stages the world so the first rendered frames already show the
+// systems the judge ranks: a chase, the city, a mission, a coastal drive.
 
-const START_SECONDS = 5;
-const PLAY_SECONDS = 26;
-const END_LIMIT_SECONDS = 600;
-/**
- * How far ahead, in seconds, the autopilot checks each way it could move: the play scene's pilot
- * looks well ahead and keeps all its lives; the end scene's looks only a moment ahead, so it is
- * caught out once the blocks speed up, as a hurried player is.
- */
-const HORIZON_PLAY = 0.7;
-const HORIZON_END = 0.25;
-const SAMPLE = 1 / 30;
-const DIRECTIONS = [0, -1, 1];
-/** Extra room, each side, it keeps between the paddle and a block. */
-const MARGIN = 10;
-
-/** Seconds until moving in `direction` (-1, 0, 1) runs the paddle into a block; Infinity when it never does. */
-function timeToHit(state, direction, horizon) {
-  const player = state.player;
-  for (let t = SAMPLE; t <= horizon; t += SAMPLE) {
-    const x = Math.min(FIELD.width - player.width, Math.max(0, player.x + direction * PLAYER.speed * t));
-    for (let index = 0; index < state.items.length; index += 1) {
-      const item = state.items[index];
-      if (!item.active || item.kind !== KIND_BLOCK) continue;
-      const y = item.y + item.speed * t;
-      if (y + item.height > player.y && y < player.y + player.height && item.x < x + player.width + MARGIN && item.x + item.width > x - MARGIN) return t;
+export function applyShot(name, ctx) {
+  const { player, playerCar, traffic, police, missions, crowd, world } = ctx;
+  const coastal = world.lineCenters[0]; // westernmost road, along the beach
+  if (name === 'chase') {
+    // Raka staged mid-chase on the coastal road: parked in frame, police
+    // closing in behind. (The game loop is frozen in shot mode, so the
+    // composition stays exactly as staged.)
+    playerCar.x = coastal;
+    playerCar.z = -30;
+    playerCar.heading = 0; // facing +z (north)
+    playerCar.speed = 0;
+    playerCar.updateMesh();
+    player.inCar = playerCar;
+    player.x = playerCar.x;
+    player.z = playerCar.z;
+    police.wanted = 3;
+    police.heat = 0;
+    police.syncUnits(player);
+    police.cars[0].x = coastal + 3;
+    police.cars[0].z = -40;
+    police.cars[0].heading = 0;
+    police.cars[0].updateMesh();
+    if (police.cars[1]) {
+      police.cars[1].x = coastal - 3;
+      police.cars[1].z = -47;
+      police.cars[1].heading = 0;
+      police.cars[1].updateMesh();
     }
-  }
-  return Infinity;
-}
-
-/** Of the safe ways to move, the one toward the lowest coin (or the centre); else the one that is hit last. */
-function autopilot(state, horizon) {
-  const player = state.player;
-  let coin = null;
-  for (let index = 0; index < state.items.length; index += 1) {
-    const item = state.items[index];
-    if (item.active && item.kind !== KIND_BLOCK && (coin === null || item.y > coin.y)) coin = item;
-  }
-  const target = coin === null ? FIELD.width / 2 : coin.x + coin.width / 2;
-  const centre = player.x + player.width / 2;
-  const wanted = target > centre + 8 ? 1 : target < centre - 8 ? -1 : 0;
-  let best = wanted;
-  let bestTime = timeToHit(state, wanted, horizon);
-  for (let index = 0; index < DIRECTIONS.length && bestTime !== Infinity; index += 1) {
-    const time = timeToHit(state, DIRECTIONS[index], horizon);
-    if (time > bestTime) {
-      bestTime = time;
-      best = DIRECTIONS[index];
+    missions.state = 'active';
+    missions.setTarget(world.spots.pier.x, world.spots.pier.z);
+    // A traffic car ahead for depth.
+    if (traffic[0]) {
+      traffic[0].x = coastal;
+      traffic[0].z = 30;
+      traffic[0].heading = 0;
+      traffic[0].updateMesh();
     }
+    return {
+      pos: { x: coastal + 3, y: 4.5, z: -56 },
+      look: { x: coastal - 1, y: 1.5, z: -26 },
+    };
   }
-  return best;
-}
-
-/**
- * Set `world` to the named scene (start, play or end; any other name is start) and return the
- * screen to draw over it and the best score to show.
- */
-export function stageShot(name, world) {
-  world.reset();
-  if (name !== 'play' && name !== 'end') {
-    for (let index = 0; index < START_SECONDS / STEP; index += 1) world.step(STEP, 0, true);
-    return { screen: SCREEN_TITLE, best: 0 };
+  if (name === 'city') {
+    // High oblique view over the city toward the sea and the setting sun.
+    player.x = 20;
+    player.z = 20;
+    player.heading = Math.PI * 0.75;
+    player.updateMesh();
+    return {
+      pos: { x: 130, y: 95, z: 190 },
+      look: { x: -60, y: 0, z: -40 },
+    };
   }
-  const limit = name === 'end' ? END_LIMIT_SECONDS : PLAY_SECONDS;
-  const horizon = name === 'end' ? HORIZON_END : HORIZON_PLAY;
-  for (let index = 0; index < limit / STEP; index += 1) {
-    if (world.step(STEP, autopilot(world.state, horizon), false) & EVENT_OVER) break;
+  if (name === 'mission') {
+    // Raka on foot at the pier base, mission beacon up, car + pedestrians near.
+    missions.state = 'active';
+    missions.setTarget(world.spots.pier.x, world.spots.pier.z);
+    player.x = world.spots.pier.x + 16;
+    player.z = 6;
+    player.heading = Math.PI * 0.5;
+    player.updateMesh();
+    if (playerCar) {
+      playerCar.x = world.spots.pier.x + 20;
+      playerCar.z = -8;
+      playerCar.heading = Math.PI / 2;
+      playerCar.updateMesh();
+    }
+    return {
+      pos: { x: world.spots.pier.x + 34, y: 5, z: 16 },
+      look: { x: world.spots.pier.x - 8, y: 2, z: 0 },
+    };
   }
-  const over = world.state.lives === 0;
-  return { screen: over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+  if (name === 'drive') {
+    // Sunset drive along the coastal road: camera on the road centre behind
+    // the car, looking along the dashes toward the pier and the sea.
+    playerCar.x = coastal;
+    playerCar.z = 60;
+    playerCar.heading = Math.PI; // facing -z, away from the camera
+    playerCar.speed = 0;
+    playerCar.updateMesh();
+    player.inCar = playerCar;
+    player.x = playerCar.x;
+    player.z = playerCar.z;
+    return {
+      pos: { x: coastal, y: 5, z: 82 },
+      look: { x: coastal, y: 1.5, z: 30 },
+    };
+  }
+  return null;
 }

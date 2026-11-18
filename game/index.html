@@ -1,19 +1,124 @@
 <!doctype html>
-<html lang="en">
+<html lang="id">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Block Dodger</title>
+<title>TELUK SENJA — game open-world pesisir</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #11141b; }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  /* Read aloud, never shown: the status line screen readers announce. */
-  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #14101c;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif; color: #f2e8d8; }
+  #game, #game canvas { width: 100%; height: 100%; display: block; }
+
+  /* ---------- HUD ---------- */
+  #hud { display: none; position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+  .panel { background: rgba(16, 12, 26, 0.62); border: 1px solid rgba(255, 210, 58, 0.35);
+    border-radius: 10px; padding: 8px 12px; backdrop-filter: blur(2px); }
+  #top-left { position: absolute; top: 14px; left: 14px; display: flex; gap: 10px; align-items: center; }
+  #wanted { font-size: 22px; letter-spacing: 3px; color: #ffd23a; }
+  #cash { font-size: 20px; font-weight: 700; color: #7aff8a; }
+  #objective-box { position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    text-align: center; max-width: 46%; }
+  #objective-title { font-size: 15px; font-weight: 700; color: #ffd23a; letter-spacing: 0.5px; }
+  #objective { font-size: 13px; color: #f2e8d8; margin-top: 2px; }
+  #minimap-wrap { position: absolute; top: 14px; right: 14px; }
+  #minimap { display: block; border-radius: 10px; border: 1px solid rgba(255, 210, 58, 0.5); }
+  #bottom-left { position: absolute; left: 14px; bottom: 14px; width: 220px; }
+  #health-label { font-size: 12px; color: #cfc4b0; display: flex; justify-content: space-between; }
+  #health-bar { height: 12px; background: rgba(0,0,0,0.55); border-radius: 6px; overflow: hidden; margin-top: 4px; }
+  #health-fill { height: 100%; width: 100%; background: #3ac27a; border-radius: 6px; }
+  #speed { position: absolute; right: 16px; bottom: 14px; font-size: 26px; font-weight: 800;
+    color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }
+  #hint { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+    font-size: 12px; color: #cfc4b0; background: rgba(16,12,26,0.55); padding: 6px 12px; border-radius: 8px; }
+  #toast { position: absolute; top: 88px; left: 50%; transform: translateX(-50%);
+    max-width: 70%; text-align: center; font-size: 15px; background: rgba(16,12,26,0.78);
+    border: 1px solid rgba(255, 210, 58, 0.45); border-radius: 10px; padding: 10px 16px;
+    opacity: 0; transition: opacity 0.4s; }
+
+  /* ---------- Overlays ---------- */
+  .overlay { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    background: linear-gradient(180deg, rgba(20,14,40,0.82), rgba(60,26,20,0.86)); }
+  .overlay h1 { font-size: 54px; letter-spacing: 6px; color: #ffd23a;
+    text-shadow: 0 0 24px rgba(255, 150, 58, 0.65), 0 4px 0 rgba(0,0,0,0.4); }
+  .overlay h2 { font-size: 17px; font-weight: 400; color: #ffb37a; margin-top: 6px; letter-spacing: 1px; }
+  .overlay p { max-width: 560px; font-size: 15px; line-height: 1.6; color: #e8dcc8; margin: 18px 0 6px; }
+  .overlay .controls { font-size: 13px; color: #b8ac96; line-height: 1.9; margin: 10px 0 20px; }
+  .overlay .controls b { color: #ffd23a; }
+  .btn { pointer-events: auto; cursor: pointer; font-size: 17px; font-weight: 700; letter-spacing: 1px;
+    color: #14101c; background: #ffd23a; border: none; border-radius: 10px;
+    padding: 13px 34px; margin: 6px; box-shadow: 0 4px 0 #b8901e; }
+  .btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #b8901e; }
+  .btn.ghost { background: transparent; color: #ffd23a; border: 2px solid #ffd23a; box-shadow: none; }
+  #pause, #busted, #dead { display: none; }
+  #continue-btn { display: none; }
+  .big-red { color: #ff5a5a !important; }
 </style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.min.js" } }
+</script>
 </head>
 <body>
-<canvas id="game" aria-label="Block Dodger: move the paddle left and right to dodge falling blocks and catch coins"></canvas>
-<p id="status" role="status" aria-live="polite"></p>
+<div id="game"></div>
+
+<div id="hud">
+  <div id="top-left">
+    <div class="panel"><span id="wanted">☆☆☆☆☆</span></div>
+    <div class="panel"><span id="cash">$0</span></div>
+  </div>
+  <div id="objective-box" class="panel">
+    <div id="objective-title">Selamat datang di Teluk Senja</div>
+    <div id="objective"></div>
+  </div>
+  <div id="minimap-wrap"><canvas id="minimap" width="180" height="180"></canvas></div>
+  <div id="bottom-left" class="panel">
+    <div id="health-label"><span>KESEHATAN</span><span><span id="health-text">100</span>%</span></div>
+    <div id="health-bar"><div id="health-fill"></div></div>
+  </div>
+  <div id="speed"></div>
+  <div id="hint">WASD jalan • Shift lari • Spasi lompat • E naik mobil • F pukul • G tembak • P jeda • M suara</div>
+  <div id="toast"></div>
+</div>
+
+<div id="menu" class="overlay">
+  <h1>TELUK SENJA</h1>
+  <h2>Kota pesisir saat senja — Raka si kurir, Dara si pengatur, dan polisi yang selalu mengawasi.</h2>
+  <p>Jelajahi kota dengan berjalan kaki atau mencuri mobil. Kerjakan misi Dara, hindari
+     razia polisi, dan jaga kesehatanmu. Setiap misi yang selesai menambah uangmu —
+     dan setiap kejahatan menambah bintang buronanmu.</p>
+  <div class="controls">
+    <b>WASD</b> jalan / mengemudi &nbsp;•&nbsp; <b>Shift</b> lari / ngebut &nbsp;•&nbsp; <b>Spasi</b> lompat<br>
+    <b>E</b> naik / keluar mobil &nbsp;•&nbsp; <b>F</b> pukul &nbsp;•&nbsp; <b>G</b> / klik tembak<br>
+    <b>Seret mouse</b> putar kamera &nbsp;•&nbsp; <b>P</b> jeda &nbsp;•&nbsp; <b>M</b> suara
+  </div>
+  <div>
+    <button id="start-btn" class="btn">MULAI PETUALANGAN</button>
+    <button id="continue-btn" class="btn ghost">LANJUTKAN SIMPANAN</button>
+  </div>
+</div>
+
+<div id="pause" class="overlay">
+  <h1 style="font-size:40px">JEDA</h1>
+  <p>Permainan disimpan otomatis. Istirahat dulu, Raka.</p>
+  <div>
+    <button id="resume-btn" class="btn">LANJUTKAN</button>
+    <button id="restart-btn" class="btn ghost">MULAI DARI AWAL</button>
+  </div>
+</div>
+
+<div id="busted" class="overlay">
+  <h1 class="big-red" style="font-size:44px">DITANGKAP!</h1>
+  <p>Polisi Teluk Senja menangkapmu. Uang jaminan dipotong — kamu dibangunkan di base Dara.</p>
+  <button id="busted-btn" class="btn">BANGUN DI BASE</button>
+</div>
+
+<div id="dead" class="overlay">
+  <h1 class="big-red" style="font-size:44px">RAKA PINGSAN</h1>
+  <p>Kamu tumbang di jalanan. Seseorang membawamu ke base — dengan dompet yang lebih ringan.</p>
+  <button id="dead-btn" class="btn">BANGUN DI BASE</button>
+</div>
+
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
