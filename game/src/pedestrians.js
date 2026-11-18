@@ -60,7 +60,7 @@ export class Pedestrian {
     this.heading = Math.atan2(dx, dz);
   }
 
-  update(dt, world, playerPos) {
+  update(dt, world, playerPos, cars = []) {
     if (!this.alive) return;
     this.phase += dt * 6;
     if (this.state === 'flee') {
@@ -73,6 +73,23 @@ export class Pedestrian {
         // Mostly keep walking along the street grid; sometimes turn.
         const turn = (Math.random() - 0.5) * Math.PI;
         this.heading += turn;
+      }
+      // A fast car bearing down: step away from its path instead of
+      // standing in the road waiting to be run over.
+      for (const car of cars) {
+        if (Math.abs(car.speed || 0) < 5) continue;
+        const dx = this.x - car.x;
+        const dz = this.z - car.z;
+        const d = Math.hypot(dx, dz);
+        if (d > 9) continue;
+        const fx = Math.sin(car.heading);
+        const fz = Math.cos(car.heading);
+        // dot > 0: the car's nose points at the pedestrian (closing in).
+        const approaching = (dx * fx + dz * fz) / (d || 1);
+        if (d < 5 || approaching > 0.4) {
+          this.fleeFrom(car.x, car.z);
+          break;
+        }
       }
     }
     const speed = this.state === 'flee' ? 5.5 : this.speed;
@@ -110,8 +127,8 @@ export class PedestrianCrowd {
     }
   }
 
-  update(dt, playerPos) {
-    for (const p of this.peds) p.update(dt, this.world, playerPos);
+  update(dt, playerPos, cars = []) {
+    for (const p of this.peds) p.update(dt, this.world, playerPos, cars);
   }
 
   // Everyone near (x,z) runs away.

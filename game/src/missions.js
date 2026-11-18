@@ -56,6 +56,10 @@ export class Missions {
     }
     this.state = 'active';
     this.phase = 'go';
+    // The tail timer must restart with the mission: on a failed tail the job
+    // restarts via start(), and a stale timer would complete it instantly.
+    this.tailSeenTimer = 0;
+    this.tailTooClose = 0;
     this.setTarget(m.target.x, m.target.z);
     this.onEvent('mission-start', m);
     if (m.kind === 'getaway' && m.wantedOnStart) {
@@ -79,8 +83,10 @@ export class Missions {
     if (!m) return;
     this.hideBeacon();
     this.state = 'done';
-    this.onEvent('mission-complete', m);
+    // Advance the index BEFORE the event: the handler persists the save, and
+    // the save must point at the NEXT mission, not the one just finished.
     this.index += 1;
+    this.onEvent('mission-complete', m);
     if (this.index >= MISSIONS.length) {
       this.state = 'finished';
       this.onEvent('missions-finished', null);

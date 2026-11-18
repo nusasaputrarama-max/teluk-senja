@@ -26,12 +26,12 @@ function makeFaceMaterial(skinMat) {
   const img = new Image();
   img.onload = () => {
     // Frame the face + peci as-is (no stylisation). The official portrait
-    // carries the face in the upper middle, so crop that square region
-    // instead of the whole head-and-shoulders shot (which reads as a suit
-    // on the head box). Fractions of the image; retune if the photo changes.
-    const side = img.width * 0.44;
-    const sx = img.width * 0.28;
-    const sy = img.height * 0.06;
+    // carries the face in the upper middle: peci top ~8% down, chin ~62%
+    // down, face centred ~50% across — crop that square so the whole face
+    // (peci to chin) lands on the head box with nothing cut off.
+    const side = img.width * 0.54;
+    const sx = img.width * 0.23;
+    const sy = img.height * 0.07;
     g.drawImage(img, sx, sy, side, side, 0, 0, 128, 128);
     tex.needsUpdate = true;
   };
@@ -57,7 +57,9 @@ export function makePlayerMesh() {
   head.position.y = 1.78;
   head.castShadow = true;
   g.add(head);
-  const cap = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.12, 0.44), new THREE.MeshLambertMaterial({ color: 0x222222 }));
+  // The peci (black cap) sits flush on the head box: same 0.4 footprint as
+  // the head, so it reads as a cap rather than a slab overhanging the face.
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.12, 0.4), new THREE.MeshLambertMaterial({ color: 0x222222 }));
   cap.position.y = 2.02;
   g.add(cap);
   const legGeo = new THREE.BoxGeometry(0.24, 0.78, 0.26);

@@ -20,10 +20,18 @@ export class Hud {
     for (let i = 0; i < 5; i++) stars += i < n ? '★' : '☆';
     this.el.wanted.textContent = stars;
     this.el.wanted.style.color = n >= 3 ? '#ff4040' : '#ffd23a';
+    // Hot pursuit: the stars pulse so the danger reads at a glance.
+    this.el.wanted.classList.toggle('hot', n >= 3);
   }
 
   setCash(n) {
+    const before = this.el.cash.textContent;
     this.el.cash.textContent = '$' + n.toLocaleString('en-US');
+    if (before !== this.el.cash.textContent) {
+      this.el.cash.classList.remove('flash');
+      void this.el.cash.offsetWidth; // restart the animation
+      this.el.cash.classList.add('flash');
+    }
   }
 
   setHealth(h, max) {

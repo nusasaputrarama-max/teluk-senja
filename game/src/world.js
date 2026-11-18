@@ -7,6 +7,7 @@ import { WORLD, COLOURS } from './config.js';
 import { makeRng, pick, range, intRange } from './rng.js';
 import {
   buildingTexture, roadTextureH, roadTextureV, skyTexture, sidewalkTexture, sandTexture, pierTexture, neonSignTexture,
+  seaTexture, foamTexture, starsTexture,
 } from './textures.js';
 
 function canvasTexture(canvas, repeatX = 1, repeatY = 1) {
@@ -42,9 +43,9 @@ export class World {
     skyTex.colorSpace = THREE.SRGBColorSpace;
     scene.background = skyTex;
     scene.fog = new THREE.Fog(COLOURS.fog, 180, 620);
-    const hemi = new THREE.HemisphereLight(0x9a8ac8, 0x4a3226, 1.15);
+    const hemi = new THREE.HemisphereLight(0x9a8ac8, 0x4a3226, 1.35);
     scene.add(hemi);
-    const sun = new THREE.DirectionalLight(COLOURS.sun, 2.6);
+    const sun = new THREE.DirectionalLight(COLOURS.sun, 2.8);
     sun.position.set(-260, 90, -140);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -53,7 +54,7 @@ export class World {
     sun.shadow.camera.top = 280;
     sun.shadow.camera.bottom = -280;
     scene.add(sun);
-    // Low sun disc on the horizon over the sea.
+    // Low sun disc on the horizon over the sea, with a warm glow halo.
     const sunDisc = new THREE.Mesh(
       new THREE.CircleGeometry(18, 32),
       new THREE.MeshBasicMaterial({ color: 0xffb03a, fog: false }),
@@ -61,6 +62,33 @@ export class World {
     sunDisc.position.set(-460, 30, -60);
     sunDisc.lookAt(0, 30, -60);
     scene.add(sunDisc);
+    const glowCanvas = document.createElement('canvas');
+    glowCanvas.width = 128;
+    glowCanvas.height = 128;
+    const gg = glowCanvas.getContext('2d');
+    const ggrad = gg.createRadialGradient(64, 64, 4, 64, 64, 62);
+    ggrad.addColorStop(0, 'rgba(255,176,58,0.55)');
+    ggrad.addColorStop(1, 'rgba(255,176,58,0)');
+    gg.fillStyle = ggrad;
+    gg.fillRect(0, 0, 128, 128);
+    const glowTex = new THREE.CanvasTexture(glowCanvas);
+    glowTex.colorSpace = THREE.SRGBColorSpace;
+    const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTex, transparent: true, depthWrite: false, fog: false,
+    }));
+    sunGlow.scale.set(180, 180, 1);
+    sunGlow.position.set(-460, 30, -60);
+    scene.add(sunGlow);
+    // Early stars high overhead (faint at dusk, visible when looking up).
+    const starsTex = new THREE.CanvasTexture(starsTexture());
+    starsTex.colorSpace = THREE.SRGBColorSpace;
+    const stars = new THREE.Mesh(
+      new THREE.PlaneGeometry(900, 300),
+      new THREE.MeshBasicMaterial({ map: starsTex, transparent: true, opacity: 0.55, fog: false, side: THREE.DoubleSide, depthWrite: false }),
+    );
+    stars.rotation.x = Math.PI / 2 - 0.35;
+    stars.position.set(0, 320, 0);
+    scene.add(stars);
 
     // --- Ground: grass-ish base, beach, sea ----------------------------
     const ground = new THREE.Mesh(
@@ -83,14 +111,28 @@ export class World {
     beach.receiveShadow = true;
     scene.add(beach);
 
-    // Sea: everything west of seaX.
+    // Sea: everything west of seaX, with a scrolling wave texture so the
+    // water drifts instead of sitting flat.
+    const seaTex = canvasTexture(seaTexture(), 10, 24);
     const sea = new THREE.Mesh(
       new THREE.PlaneGeometry(220, H * 2 + 400),
-      new THREE.MeshLambertMaterial({ color: COLOURS.sea }),
+      new THREE.MeshLambertMaterial({ map: seaTex }),
     );
     sea.rotation.x = -Math.PI / 2;
     sea.position.set(WORLD.seaX - 110, 0.02, 0);
     scene.add(sea);
+    this.seaTex = seaTex;
+    // Foam where the sea meets the sand.
+    const foam = new THREE.Mesh(
+      new THREE.PlaneGeometry(10, H * 2 + 80),
+      new THREE.MeshLambertMaterial({
+        map: canvasTexture(foamTexture(), 1, 20), transparent: true, opacity: 0.7, depthWrite: false,
+      }),
+    );
+    foam.rotation.x = -Math.PI / 2;
+    foam.position.set(WORLD.seaX + 2, 0.06, 0);
+    scene.add(foam);
+    this.foamMesh = foam;
     const seaFar = new THREE.Mesh(
       new THREE.PlaneGeometry(400, H * 2 + 400),
       new THREE.MeshBasicMaterial({ color: COLOURS.seaDeep, fog: false }),
@@ -181,7 +223,7 @@ export class World {
           const pz = oz + 6 + rng() * (WORLD.block - 12 - d);
           const color = pick(rng, COLOURS.buildingPalette);
           const tex = canvasTexture(
-            buildingTexture('#' + color.toString(16).padStart(6, '0'), 0.45, rng),
+            buildingTexture('#' + color.toString(16).padStart(6, '0'), 0.25 + rng() * 0.35, rng),
           );
           const mat = new THREE.MeshLambertMaterial({ map: tex });
           const mesh = new THREE.Mesh(getBuildingGeo(w, h, d), mat);
@@ -190,6 +232,21 @@ export class World {
           mesh.receiveShadow = true;
           scene.add(mesh);
           this.colliders.push({ minX: px, maxX: px + w, minZ: pz, maxZ: pz + d });
+          // Rooftop props on some buildings: AC box + water tank.
+          if (rng() < 0.4) {
+            const ac = new THREE.Mesh(
+              new THREE.BoxGeometry(2.2, 1, 1.6),
+              new THREE.MeshLambertMaterial({ color: 0x9a9aa2 }),
+            );
+            ac.position.set(px + w / 2 - 2, h + 0.5, pz + d / 2);
+            scene.add(ac);
+            const tank = new THREE.Mesh(
+              new THREE.CylinderGeometry(1.1, 1.1, 2, 10),
+              new THREE.MeshLambertMaterial({ color: 0x3a6a8a }),
+            );
+            tank.position.set(px + w / 2 + 4, h + 1, pz + d / 2 - 2);
+            scene.add(tank);
+          }
           // Neon sign on some taller buildings.
           if (h > 24 && rng() < 0.5) {
             const signText = pick(rng, ['KOPI', 'MIE', 'HOTEL', 'BAR', 'TOKO', 'IKAN']);
@@ -283,9 +340,41 @@ export class World {
       scene.add(leaves);
     }
 
+    // Beach umbrellas near the pier (colour pops against the sand).
+    const umbrellaColors = [0xc23a3a, 0x3a7ac2, 0xd8a23a];
+    for (let i = 0; i < 3; i++) {
+      const ux = WORLD.beachX - 6 - rng() * 8;
+      const uz = -40 + i * 42;
+      const pole = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.08, 0.08, 3, 6),
+        new THREE.MeshLambertMaterial({ color: 0xdddddd }),
+      );
+      pole.position.set(ux, 1.5, uz);
+      scene.add(pole);
+      const top = new THREE.Mesh(
+        new THREE.ConeGeometry(2.6, 1.2, 8),
+        new THREE.MeshLambertMaterial({ color: umbrellaColors[i] }),
+      );
+      top.position.set(ux, 3.4, uz);
+      top.castShadow = true;
+      scene.add(top);
+    }
+
+    // Lamp posts along the market road too (emissive heads only — the real
+    // PointLights stay on the coastal road for performance).
+    const marketZ = this.lineCenters[4];
+    for (let x = -H + 30; x < H - 20; x += 60) {
+      const pole = new THREE.Mesh(lampPoleGeo, lampPoleMat);
+      pole.position.set(x, 3, marketZ + 7.5);
+      scene.add(pole);
+      const head = new THREE.Mesh(lampHeadGeo, lampHeadMat);
+      head.position.set(x, 6.1, marketZ + 7.5);
+      scene.add(head);
+    }
+
     // --- Named spots ------------------------------------------------------
     const marketCenter = WORLD.gridOrigin + 4 * WORLD.pitch + WORLD.block / 2;
-    this.spots.base = { x: 26, z: 26 }; // Prabowo's base: market square corner
+    this.spots.base = { x: 20, z: 20 }; // Prabowo's base: market square centre (open, clear of the stalls)
     this.spots.pier = { x: WORLD.beachX - 2, z: 0 };
     this.spots.pierEnd = { x: WORLD.beachX - 50, z: 0 };
     this.spots.market = { x: marketCenter, z: marketCenter };
@@ -372,6 +461,16 @@ export class World {
       const bench = new THREE.Mesh(new THREE.BoxGeometry(3, 0.5, 1), benchMat);
       bench.position.set(ox + 10 + i * 16, 0.5, oz + WORLD.block / 2);
       scene.add(bench);
+    }
+  }
+
+  // Per-frame ambience: the sea drifts and the foam breathes.
+  update(dt) {
+    if (this.seaTex) this.seaTex.offset.y += dt * 0.008;
+    if (this.seaTex) this.seaTex.offset.x += dt * 0.002;
+    if (this.foamMesh) {
+      const s = 1 + Math.sin(performance.now() / 1400) * 0.05;
+      this.foamMesh.scale.x = s;
     }
   }
 

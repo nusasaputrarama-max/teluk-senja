@@ -94,7 +94,7 @@ export const MISSIONS = [
     target: { x: -58, z: 150 },
     reward: 500,
     kind: 'collect',
-    returnTo: { x: 26, z: 26 },
+    returnTo: { x: 20, z: 20 },
   },
 ];
 

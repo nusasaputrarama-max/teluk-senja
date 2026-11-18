@@ -12,6 +12,7 @@ import { PedestrianCrowd } from './pedestrians.js';
 import { Police } from './police.js';
 import { Missions } from './missions.js';
 import { Combat } from './combat.js';
+import { Effects } from './effects.js';
 import { Hud } from './hud.js';
 import { SoundEngine } from './audio.js';
 import { saveGame, loadGame, hasSave, clearSave } from './save.js';
@@ -20,12 +21,15 @@ import { applyShot } from './shots.js';
 const params = new URLSearchParams(location.search);
 const shotName = params.get('shot');
 const isShot = !!shotName;
+// Quality option: ?quality=low turns shadows off and caps the pixel ratio,
+// for low-end machines (and headless testing). Full quality is the default.
+const lowQuality = params.get('quality') === 'low';
 
 // --- Renderer / scene ---------------------------------------------------
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: !lowQuality });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.shadowMap.enabled = true;
+renderer.setPixelRatio(lowQuality ? 1 : Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = !lowQuality;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.getElementById('game').appendChild(renderer.domElement);
 
@@ -35,6 +39,7 @@ const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerH
 const world = new World(scene);
 const rng = makeRng(WORLD.seed + 31);
 const sound = new SoundEngine();
+const effects = new Effects(scene);
 const hud = new Hud(world);
 
 // --- Player --------------------------------------------------------------
@@ -43,7 +48,7 @@ const player = new Player(scene, world, start.x, start.z);
 
 // --- Cars: the player's car, parked cars, traffic ------------------------
 function spawnCarAt(x, z, heading, color, opts = {}) {
-  const mesh = makeCarMesh(color, opts.isPolice);
+  const mesh = makeCarMesh(color, opts.isPolice, opts.isVan);
   scene.add(mesh);
   return new Car(mesh, x, z, heading, { color, ...opts });
 }
@@ -65,7 +70,7 @@ const parkedCars = [];
   }
 }
 const traffic = [];
-for (let i = 0; i < 10; i++) {
+for (let i = 0; i < 16; i++) {
   const loop = world.roadLoops[i % world.roadLoops.length];
   const wp = loop[Math.floor(rng() * loop.length)];
   const car = spawnCarAt(wp.x, wp.z, rng() * Math.PI * 2, randomCarColor(rng), {
@@ -73,15 +78,16 @@ for (let i = 0; i < 10; i++) {
   });
   traffic.push(car);
 }
-// The box van for the tail mission (parked until mission 3 starts).
+// The box van for the tail mission (parked until mission 3 starts): a real
+// cargo van, not a sedan — it must read as a van from the chase camera.
 const tailVan = spawnCarAt(world.lineCenters[2], -100, 0, 0x8a8a8a, {
-  isTraffic: true, loop: world.roadLoops[0], loopIndex: 0, loopSpeed: 9,
+  isTraffic: true, loop: world.roadLoops[0], loopIndex: 0, loopSpeed: 9, isVan: true,
 });
 tailVan.mesh.visible = false;
 let tailVanActive = false;
 
 // --- Crowd, police, missions, combat --------------------------------------
-const crowd = new PedestrianCrowd(scene, world, 26, rng);
+const crowd = new PedestrianCrowd(scene, world, 34, rng);
 const police = new Police(scene, world);
 const combat = new Combat(scene, sound);
 
@@ -192,6 +198,7 @@ function respawn(reason) {
   if (player.inCar) {
     player.inCar = null;
   }
+  playerCar.damage = 0; // fresh start after a bust: the car is repaired
   player.x = world.spots.base.x;
   player.z = world.spots.base.z;
   player.y = 0;
@@ -328,18 +335,25 @@ function tryPunch() {
     police.addWanted(1, player, () => {});
     hud.setWanted(police.wanted);
     crowd.scareNear(player.x, player.z, 14);
+    effects.spark(player.x + Math.sin(player.heading) * 1.6, 1.4, player.z + Math.cos(player.heading) * 1.6);
   } else if (result && result.type === 'cop') {
+    // A cop takes 3 punches to go down; a downed cop stays down a while.
+    const down = police.damageCop(result.target, 1);
     police.addWanted(1, player, () => {});
     hud.setWanted(police.wanted);
+    effects.spark(result.target.x, 1.4, result.target.z);
+    if (down) hud.toast('Polisi tumbang!', 2500);
   }
 }
 
 function tryShoot() {
   const result = combat.shoot(player, player.camYaw);
   if (!result || result.type !== 'shot') return;
-  // Check the shot line against pedestrians and cops.
+  // Muzzle flash at the gun.
   const fx = -Math.sin(player.camYaw);
   const fz = -Math.cos(player.camYaw);
+  effects.flash(player.x + fx * 1.2, 1.4, player.z + fz * 1.2);
+  // Check the shot line against pedestrians and cops.
   const checkHit = (x, z) => {
     const dx = x - player.x;
     const dz = z - player.z;
@@ -357,9 +371,13 @@ function tryShoot() {
   for (const cop of police.cops) {
     if (checkHit(cop.x, cop.z)) {
       hitSomething = true;
-      // A shot cop falls back; the law notices.
-      cop.x -= fx * 2;
-      cop.z -= fz * 2;
+      // A shot cop takes damage (2 shots to go down); the law notices.
+      const down = police.damageCop(cop, 1);
+      if (!down) {
+        cop.x -= fx * 2;
+        cop.z -= fz * 2;
+      }
+      effects.spark(cop.x, 1.4, cop.z);
     }
   }
   if (hitSomething || true) {
@@ -389,6 +407,13 @@ function collideCars(dt) {
         a.z -= nz * push;
         b.x += nx * push;
         b.z += nz * push;
+        // A hard shunt dents both cars; enough damage and they smoke.
+        const impact = Math.abs(a.speed - b.speed);
+        if (impact > 6) {
+          a.addDamage(impact * 0.9);
+          b.addDamage(impact * 0.9);
+          effects.spark((a.x + b.x) / 2, 1, (a.z + b.z) / 2);
+        }
         a.speed *= 0.9;
         b.speed *= 0.9;
         a.updateMesh();
@@ -400,6 +425,7 @@ function collideCars(dt) {
   for (const car of all) {
     const fixed = world.resolveBuildings(car.x, car.z, 2.1);
     if (fixed.x !== car.x || fixed.z !== car.z) {
+      if (Math.abs(car.speed) > 8) car.addDamage(Math.abs(car.speed) * 0.7);
       car.x = fixed.x;
       car.z = fixed.z;
       car.speed *= 0.55;
@@ -471,7 +497,7 @@ let menuAngle = 0;
 
 function animate() {
   requestAnimationFrame(animate);
-  const dt = Math.min(clock.getDelta(), 0.05);
+  const dt = Math.min(clock.getDelta(), lowQuality ? 0.1 : 0.05);
   elapsed += dt;
 
   // Screenshot mode: the scene is staged, not simulated — render it frozen
@@ -491,7 +517,9 @@ function animate() {
     camera.position.set(Math.sin(menuAngle) * 190, 85, Math.cos(menuAngle) * 190);
     camera.lookAt(-40, 0, 0);
     traffic.forEach((c) => c.updateTraffic(dt, world, null));
-    crowd.update(dt, player);
+    crowd.update(dt, player, [...traffic, playerCar]);
+    effects.update(dt);
+    world.update(dt);
     renderer.render(scene, camera);
     return;
   }
@@ -502,7 +530,25 @@ function animate() {
 
   // --- Playing ---
   combat.update(dt);
-  crowd.update(dt, player);
+  effects.update(dt);
+  world.update(dt);
+  const nearbyCars = [...traffic, playerCar, ...police.cars];
+  if (tailVanActive) nearbyCars.push(tailVan);
+  crowd.update(dt, player, nearbyCars);
+
+  // Smoke from damaged cars, dust from fast driving.
+  for (const car of nearbyCars) {
+    if (car.damage > 40) {
+      car.smokeTimer -= dt;
+      if (car.smokeTimer <= 0) {
+        car.smokeTimer = 0.14;
+        effects.smoke(car.x, 1.6, car.z);
+      }
+    }
+    if (Math.abs(car.speed) > 20 && car.isPlayer) {
+      effects.dust(car.x - Math.sin(car.heading) * 2, 0.4, car.z - Math.cos(car.heading) * 2);
+    }
+  }
 
   // Driving or walking.
   let driving = false;
@@ -555,11 +601,12 @@ function animate() {
     }
   }
 
-  // Foot cops hurt the player up close.
+  // Foot cops hurt the player up close (6/s: a fair fight now that a cop
+  // can be punched or shot down in 3 hits).
   for (const cop of police.cops) {
     const d = Math.hypot(cop.x - player.x, cop.z - player.z);
-    if (!player.inCar && d < 1.8) {
-      player.health -= 9 * dt;
+    if (!player.inCar && d < 1.8 && cop.downTimer <= 0) {
+      player.health -= 6 * dt;
       lastDamageAt = elapsed;
       hud.setHealth(player.health, PLAYER.maxHealth);
       if (player.health <= 0) {

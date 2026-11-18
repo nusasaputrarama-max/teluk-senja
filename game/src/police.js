@@ -59,7 +59,7 @@ export class Police {
     const z = playerPos.z + Math.cos(angle) * dist;
     mesh.position.set(x, 0, z);
     this.scene.add(mesh);
-    this.cops.push({ mesh, x, z, heading: 0, speed: 6.5 });
+    this.cops.push({ mesh, x, z, heading: 0, speed: 6.5, health: 3, downTimer: 0 });
   }
 
   spawnPoliceCar(playerPos) {
@@ -71,6 +71,18 @@ export class Police {
     this.scene.add(mesh);
     const car = new Car(mesh, x, z, Math.random() * Math.PI * 2, { isPolice: true });
     this.cars.push(car);
+  }
+
+  // Damage a foot cop: 3 hits knock him down for a while, then he gets up.
+  // Returns true when this hit knocked him down.
+  damageCop(cop, n = 1) {
+    if (!cop || cop.downTimer > 0) return false;
+    cop.health -= n;
+    if (cop.health > 0) return false;
+    cop.downTimer = 20;
+    cop.mesh.rotation.z = Math.PI / 2;
+    cop.mesh.position.y = 0.4;
+    return true;
   }
 
   clearUnits() {
@@ -96,15 +108,29 @@ export class Police {
     }
     const px = playerCar ? playerCar.x : player.x;
     const pz = playerCar ? playerCar.z : player.z;
-    // Foot cops run at the player; catching on foot = busted.
+    // Foot cops run at the player; catching on foot = busted. They slide
+    // around buildings instead of running straight through them, and a
+    // knocked-down cop stays down until he gets back up.
     for (const cop of this.cops) {
+      if (cop.downTimer > 0) {
+        cop.downTimer -= dt;
+        if (cop.downTimer <= 0) {
+          cop.health = 3;
+          cop.mesh.rotation.z = 0;
+          cop.mesh.position.y = 0;
+        }
+        continue;
+      }
       const dx = px - cop.x;
       const dz = pz - cop.z;
       const d = Math.hypot(dx, dz);
       if (d > 0.1) {
         cop.heading = Math.atan2(dx, dz);
-        cop.x += Math.sin(cop.heading) * cop.speed * dt;
-        cop.z += Math.cos(cop.heading) * cop.speed * dt;
+        let nx = cop.x + Math.sin(cop.heading) * cop.speed * dt;
+        let nz = cop.z + Math.cos(cop.heading) * cop.speed * dt;
+        const fixed = this.world.resolveBuildings(nx, nz, 0.5);
+        cop.x = fixed.x;
+        cop.z = fixed.z;
       }
       cop.mesh.position.set(cop.x, 0, cop.z);
       cop.mesh.rotation.y = cop.heading;
@@ -113,11 +139,33 @@ export class Police {
       }
     }
     // Police cars chase and ram the player's car (or the player on foot, slowly).
+    // Far away they route along the road grid instead of driving through
+    // buildings: if the straight line to the player is blocked, aim for the
+    // nearest road intersection on the player's side first.
     for (const car of this.cars) {
       const dx = px - car.x;
       const dz = pz - car.z;
       const d = Math.hypot(dx, dz);
-      const wantHeading = Math.atan2(dx, dz);
+      let tx = px;
+      let tz = pz;
+      if (d > 45) {
+        const steps = Math.ceil(d / 6);
+        let blocked = false;
+        for (let i = 1; i < steps; i++) {
+          const sx = car.x + (dx * i) / steps;
+          const sz = car.z + (dz * i) / steps;
+          if (this.world.hitsBuilding(sx, sz, 2.2)) { blocked = true; break; }
+        }
+        if (blocked) {
+          const lines = this.world.lineCenters;
+          const nearest = (v) => lines.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
+          tx = nearest(px);
+          tz = nearest(pz);
+        }
+      }
+      const tdx = tx - car.x;
+      const tdz = tz - car.z;
+      const wantHeading = Math.atan2(tdx, tdz);
       let diff = wantHeading - car.heading;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
